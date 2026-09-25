@@ -1,0 +1,6 @@
+{
+    "save_dir": "D:\\LOGNOTE\\{kind}",
+    "base_url": "http://saclaopr19.spring8.or.jp/~lognote/{kind}/operation_log/{year}/{month}",
+    "kinds": ["SACLA", "SCSS", "SP8"],
+    "default_kind": "SACLA"
+}
