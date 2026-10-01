@@ -109,20 +109,30 @@ class LogDownloaderGUI:
 
         ttk.Label(frame, text="Kind:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.kind_var = tk.StringVar(value=CONFIG["default_kind"])
-        self.kind_combo = ttk.Combobox(
-            frame, textvariable=self.kind_var,
-            values=CONFIG["kinds"],
-            state="readonly", width=15
-        )
-        self.kind_combo.grid(row=0, column=1, sticky=tk.W, pady=5)
+        kind_frame = ttk.Frame(frame)
+        kind_frame.grid(row=0, column=1, sticky=tk.W, pady=5)
+        # indicatoron=0 でボタン表示にし、選択中は押し込み状態になる
+        for kind in CONFIG["kinds"]:
+            tk.Radiobutton(
+                kind_frame, text=kind, value=kind, variable=self.kind_var,
+                indicatoron=0, width=8, pady=3, selectcolor="#a8c8f0"
+            ).pack(side=tk.LEFT, padx=2)
 
         ttk.Label(frame, text="Year:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.year_var = tk.StringVar(value=current_year)
-        ttk.Entry(frame, textvariable=self.year_var, width=18).grid(row=1, column=1, sticky=tk.W, pady=5)
+        year_frame = ttk.Frame(frame)
+        year_frame.grid(row=1, column=1, sticky=tk.W, pady=5)
+        ttk.Button(year_frame, text="-", width=3, command=lambda: self.change_month(-12)).pack(side=tk.LEFT)
+        ttk.Entry(year_frame, textvariable=self.year_var, width=10, justify="center").pack(side=tk.LEFT, padx=3)
+        ttk.Button(year_frame, text="+", width=3, command=lambda: self.change_month(12)).pack(side=tk.LEFT)
 
         ttk.Label(frame, text="Month:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.month_var = tk.StringVar(value=current_month)
-        ttk.Entry(frame, textvariable=self.month_var, width=18).grid(row=2, column=1, sticky=tk.W, pady=5)
+        month_frame = ttk.Frame(frame)
+        month_frame.grid(row=2, column=1, sticky=tk.W, pady=5)
+        ttk.Button(month_frame, text="-", width=3, command=lambda: self.change_month(-1)).pack(side=tk.LEFT)
+        ttk.Entry(month_frame, textvariable=self.month_var, width=10, justify="center").pack(side=tk.LEFT, padx=3)
+        ttk.Button(month_frame, text="+", width=3, command=lambda: self.change_month(1)).pack(side=tk.LEFT)
 
         ttk.Label(frame, text="Save to:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.save_path_var = tk.StringVar()
@@ -142,6 +152,17 @@ class LogDownloaderGUI:
         ttk.Label(frame, textvariable=self.status_var, foreground="blue").grid(row=6, column=0, columnspan=2, pady=5)
 
         self.kind_var.trace_add("write", lambda *args: self.update_save_path())
+
+    def change_month(self, delta):
+        """月単位で増減 (年をまたぐ場合は年も更新)。delta=±12 で年のみ変更"""
+        try:
+            year = int(self.year_var.get())
+            month = int(self.month_var.get())
+        except ValueError:
+            return
+        index = year * 12 + (month - 1) + delta
+        self.year_var.set(str(index // 12))
+        self.month_var.set(f"{index % 12 + 1:02d}")
 
     def update_save_path(self):
         self.save_path_var.set(get_save_dir(self.kind_var.get()))
