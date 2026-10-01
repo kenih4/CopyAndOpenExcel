@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
@@ -73,15 +74,31 @@ def download_log(kind, year, month, open_excel_flag):
         return False
 
 
-def try_download(url, save_path):
+def try_download(url, save_path, progress=None):
+    """ダウンロードして save_path に保存。progress(受信バイト数, 全体バイト数 or None) を随時呼ぶ"""
+    tmp_path = save_path + ".part"
     try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            with open(save_path, "wb") as f:
-                f.write(response.content)
-            return True
+        with requests.get(url, timeout=30, stream=True) as response:
+            if response.status_code != 200:
+                return False
+            total = int(response.headers.get("Content-Length") or 0) or None
+            received = 0
+            with open(tmp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=256 * 1024):
+                    f.write(chunk)
+                    received += len(chunk)
+                    if progress:
+                        progress(received, total)
+        # 完了してから置き換える (失敗時に既存ファイルを壊さない)
+        os.replace(tmp_path, save_path)
+        return True
     except Exception as e:
         print(f"Download error: {e}")
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except OSError:
+        pass
     return False
 
 
@@ -97,7 +114,7 @@ class LogDownloaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Operation Log Downloader")
-        self.root.geometry("500x310")
+        self.root.geometry("500x330")
         self.root.resizable(False, False)
 
         now = datetime.now()
@@ -145,8 +162,12 @@ class LogDownloaderGUI:
             variable=self.open_excel_var
         ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
 
-        self.download_btn = ttk.Button(frame, text="Download", command=self.on_download)
-        self.download_btn.grid(row=5, column=0, columnspan=2, pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        self.open_btn = ttk.Button(btn_frame, text="Open (ローカル優先)", command=lambda: self.on_download(force=False))
+        self.open_btn.pack(side=tk.LEFT, padx=5)
+        self.download_btn = ttk.Button(btn_frame, text="Re-download (再ダウンロード)", command=lambda: self.on_download(force=True))
+        self.download_btn.pack(side=tk.LEFT, padx=5)
 
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(frame, textvariable=self.status_var, foreground="blue").grid(row=6, column=0, columnspan=2, pady=5)
@@ -167,7 +188,16 @@ class LogDownloaderGUI:
     def update_save_path(self):
         self.save_path_var.set(get_save_dir(self.kind_var.get()))
 
-    def on_download(self):
+    def set_status(self, text):
+        # ワーカースレッドからも安全に呼べるようメインスレッドに依頼する
+        self.root.after(0, lambda: self.status_var.set(text))
+
+    def set_buttons_enabled(self, enabled):
+        state = "normal" if enabled else "disabled"
+        self.open_btn.config(state=state)
+        self.download_btn.config(state=state)
+
+    def on_download(self, force):
         kind = self.kind_var.get().strip()
         year = self.year_var.get().strip()
         month = self.month_var.get().strip()
@@ -177,33 +207,72 @@ class LogDownloaderGUI:
             return
 
         month = month.zfill(2)
+        open_flag = self.open_excel_var.get()
+        self.set_buttons_enabled(False)
+        threading.Thread(
+            target=self.worker, args=(kind, year, month, force, open_flag), daemon=True
+        ).start()
+
+    def worker(self, kind, year, month, force, open_flag):
         url1, url2 = get_urls(kind, year, month)
-
         save_dir = get_save_dir(kind)
-        os.makedirs(save_dir, exist_ok=True)
-
         final_filename = f"{year}_{month}_{kind}.xlsm"
         final_path = os.path.join(save_dir, final_filename)
 
-        self.status_var.set("Downloading...")
-        self.root.update()
+        def progress(received, total):
+            mb = received / 1024 / 1024
+            if total:
+                self.set_status(f"Downloading... {mb:.1f} / {total / 1024 / 1024:.1f} MB ({received * 100 // total}%)")
+            else:
+                self.set_status(f"Downloading... {mb:.1f} MB")
 
-        success = try_download(url1, final_path)
-        source = "URL1"
+        try:
+            os.makedirs(save_dir, exist_ok=True)
 
-        if not success:
-            self.status_var.set("URL1 not found, trying URL2...")
-            self.root.update()
-            success = try_download(url2, final_path)
-            source = "URL2"
+            if not force and os.path.isfile(final_path):
+                self.set_status(f"Local file: {final_filename}")
+                if open_flag:
+                    open_excel_file(final_path)
+                return
 
-        if success:
-            self.status_var.set(f"Saved: {final_filename} ({source})")
-            if self.open_excel_var.get():
-                open_excel_file(final_path)
-        else:
-            self.status_var.set("Download failed.")
-            messagebox.showerror("Error", f"ファイルが見つかりませんでした。\n\nURL1: {url1}\nURL2: {url2}")
+            self.set_status("Downloading...")
+            success = try_download(url1, final_path, progress)
+            source = "URL1"
+            if not success:
+                self.set_status("URL1 not found, trying URL2...")
+                success = try_download(url2, final_path, progress)
+                source = "URL2"
+
+            if success:
+                self.set_status(f"Saved: {final_filename} ({source})")
+                if open_flag:
+                    open_excel_file(final_path)
+            else:
+                self.set_status("Download failed.")
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Error", f"ファイルが見つかりませんでした。\n\nURL1: {url1}\nURL2: {url2}"))
+        except Exception as e:
+            self.set_status("Error.")
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+        finally:
+            self.root.after(0, lambda: self.set_buttons_enabled(True))
+
+
+def hide_own_console():
+    """ダブルクリック起動で自動的に開いたコンソールを閉じる (ターミナルから起動した場合は何もしない)"""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        pids = (ctypes.c_uint * 2)()
+        # コンソールに接続しているのが自プロセスだけなら、自分専用のコンソール
+        if kernel32.GetConsoleProcessList(pids, 2) == 1:
+            hwnd = kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+    except Exception:
+        pass
 
 
 def main():
@@ -219,6 +288,7 @@ def main():
         sys.exit(0 if success else 1)
     else:
         # GUIモード
+        hide_own_console()
         root = tk.Tk()
         app = LogDownloaderGUI(root)
         root.mainloop()
