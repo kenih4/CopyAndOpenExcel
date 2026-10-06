@@ -19,6 +19,18 @@ def load_config():
 
 CONFIG = load_config()
 
+DARK = {
+    "bg": "#1e1e1e", "fg": "#e0e0e0", "field": "#2d2d2d", "border": "#555555",
+    "button": "#3a3a3a", "button_active": "#4a4a4a", "accent": "#2f6db5",
+    "link": "#6cb6ff", "disabled": "#777777",
+}
+
+GREP_SCRIPT = "c:/Users/kenic/Dropbox/gitdir/operation_log_NEW/excelgrep_by_XMLparse.sh"
+VSCODE_EXE = r"C:\Users\kenic\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+OPERATION_LOG_DIR = r"C:\Users\kenic\Dropbox\gitdir\operation_log_NEW"
+LOGSEARCH_URL = "http://saclaopr19.spring8.or.jp/~logsearch/"
+GIT_BASH = r"C:\Program Files\Git\bin\bash.exe"
+
 
 def get_save_dir(kind):
     """保存先フォルダ (configの save_dir の {kind} を置換)"""
@@ -114,7 +126,7 @@ class LogDownloaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Operation Log Downloader")
-        self.root.geometry("500x330")
+        self.root.geometry("720x400")
         self.root.resizable(False, False)
 
         now = datetime.now()
@@ -123,6 +135,7 @@ class LogDownloaderGUI:
 
         frame = ttk.Frame(root, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
+        self.setup_dark_theme()
 
         ttk.Label(frame, text="Kind:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.kind_var = tk.StringVar(value=CONFIG["default_kind"])
@@ -132,7 +145,10 @@ class LogDownloaderGUI:
         for kind in CONFIG["kinds"]:
             tk.Radiobutton(
                 kind_frame, text=kind, value=kind, variable=self.kind_var,
-                indicatoron=0, width=8, pady=3, selectcolor="#a8c8f0"
+                indicatoron=0, width=8, pady=3, relief=tk.RAISED, bd=2,
+                bg=DARK["button"], fg=DARK["fg"], selectcolor=DARK["accent"],
+                activebackground=DARK["button_active"], activeforeground=DARK["fg"],
+                highlightthickness=0
             ).pack(side=tk.LEFT, padx=2)
 
         ttk.Label(frame, text="Year:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -153,7 +169,9 @@ class LogDownloaderGUI:
 
         ttk.Label(frame, text="Save to:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.save_path_var = tk.StringVar()
-        ttk.Label(frame, textvariable=self.save_path_var, foreground="gray").grid(row=3, column=1, sticky=tk.W, pady=5)
+        save_label = ttk.Label(frame, textvariable=self.save_path_var, foreground=DARK["link"], cursor="hand2")
+        save_label.grid(row=3, column=1, sticky=tk.W, pady=5)
+        save_label.bind("<Button-1>", lambda e: self.open_save_dir())
         self.update_save_path()
 
         self.open_excel_var = tk.BooleanVar(value=True)
@@ -163,16 +181,61 @@ class LogDownloaderGUI:
         ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=5, column=0, columnspan=3, pady=10)
         self.open_btn = ttk.Button(btn_frame, text="Open (ローカル優先)", command=lambda: self.on_download(force=False))
         self.open_btn.pack(side=tk.LEFT, padx=5)
         self.download_btn = ttk.Button(btn_frame, text="Re-download (再ダウンロード)", command=lambda: self.on_download(force=True))
         self.download_btn.pack(side=tk.LEFT, padx=5)
 
+        btn_frame2 = ttk.Frame(frame)
+        btn_frame2.grid(row=6, column=0, columnspan=3, pady=(0, 10))
+        self.log_btn = ttk.Button(btn_frame2, text="Open + Log出力 (ローカル優先)", command=lambda: self.on_download(force=False, log=True))
+        self.log_btn.pack(side=tk.LEFT, padx=5)
+        self.log_dl_btn = ttk.Button(btn_frame2, text="Re-download + Log出力", command=lambda: self.on_download(force=True, log=True))
+        self.log_dl_btn.pack(side=tk.LEFT, padx=5)
+
+        tool_frame = ttk.Frame(frame)
+        tool_frame.grid(row=1, column=2, rowspan=2, sticky=tk.N, padx=(25, 0))
+        ttk.Button(tool_frame, text="operation_log_NEW", width=18, command=self.open_operation_log_in_vscode).pack(pady=(0, 6))
+        ttk.Button(tool_frame, text="ログ検索", width=18, command=self.open_logsearch).pack()
+
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(frame, textvariable=self.status_var, foreground="blue").grid(row=6, column=0, columnspan=2, pady=5)
+        ttk.Label(frame, textvariable=self.status_var, foreground=DARK["link"]).grid(row=7, column=0, columnspan=3, pady=5)
 
         self.kind_var.trace_add("write", lambda *args: self.update_save_path())
+
+    def open_operation_log_in_vscode(self):
+        try:
+            subprocess.Popen([VSCODE_EXE, OPERATION_LOG_DIR])
+        except Exception as e:
+            messagebox.showerror("Error", f"VS Code を起動できませんでした。\n{e}")
+
+    def open_logsearch(self):
+        try:
+            # 既定ブラウザに関わらず Edge で開く
+            subprocess.Popen(["cmd", "/c", "start", "", "msedge", LOGSEARCH_URL],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception as e:
+            messagebox.showerror("Error", f"Edge を起動できませんでした。\n{e}")
+
+    def setup_dark_theme(self):
+        self.root.configure(bg=DARK["bg"])
+        style = ttk.Style()
+        style.theme_use("clam")  # 色指定が効くテーマ
+        style.configure(".", background=DARK["bg"], foreground=DARK["fg"],
+                        fieldbackground=DARK["field"], bordercolor=DARK["border"],
+                        lightcolor=DARK["button"], darkcolor=DARK["button"],
+                        troughcolor=DARK["field"], insertcolor=DARK["fg"])
+        style.configure("TButton", background=DARK["button"], foreground=DARK["fg"], padding=4)
+        style.map("TButton",
+                  background=[("disabled", DARK["bg"]), ("pressed", DARK["accent"]), ("active", DARK["button_active"])],
+                  foreground=[("disabled", DARK["disabled"])])
+        style.configure("TEntry", fieldbackground=DARK["field"], foreground=DARK["fg"])
+        style.configure("TCheckbutton", background=DARK["bg"], foreground=DARK["fg"],
+                        indicatorbackground=DARK["field"], indicatorforeground=DARK["fg"])
+        style.map("TCheckbutton",
+                  background=[("active", DARK["bg"])],
+                  indicatorcolor=[("selected", DARK["accent"]), ("!selected", DARK["field"])])
 
     def change_month(self, delta):
         """月単位で増減 (年をまたぐ場合は年も更新)。delta=±12 で年のみ変更"""
@@ -185,6 +248,15 @@ class LogDownloaderGUI:
         self.year_var.set(str(index // 12))
         self.month_var.set(f"{index % 12 + 1:02d}")
 
+    def open_save_dir(self):
+        """保存先フォルダをエクスプローラーで開く (なければ作成)"""
+        save_dir = get_save_dir(self.kind_var.get())
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            os.startfile(save_dir)
+        except Exception as e:
+            messagebox.showerror("Error", f"フォルダを開けませんでした。\n{e}")
+
     def update_save_path(self):
         self.save_path_var.set(get_save_dir(self.kind_var.get()))
 
@@ -194,10 +266,32 @@ class LogDownloaderGUI:
 
     def set_buttons_enabled(self, enabled):
         state = "normal" if enabled else "disabled"
-        self.open_btn.config(state=state)
-        self.download_btn.config(state=state)
+        for btn in (self.open_btn, self.download_btn, self.log_btn, self.log_dl_btn):
+            btn.config(state=state)
 
-    def on_download(self, force):
+    def finish(self, path, open_flag, log):
+        """取得済みのファイルに対する後処理 (ログ出力 / Excelで開く)"""
+        if log:
+            self.run_log_script(path)
+        elif open_flag:
+            open_excel_file(path)
+
+    def run_log_script(self, path):
+        """新しいコンソールウィンドウでスクリプトを実行 (Yes/No の対話入力ができる)"""
+        self.set_status("Log出力中 (ターミナルで操作してください)...")
+        # 終了後に結果を読めるよう、Enterを押すまでウィンドウを閉じない
+        wrapper = 'bash "$0" "$@"; rc=$?; echo; read -r -p "終了しました。Enterで閉じます" _; exit $rc'
+        result = subprocess.run(
+            [GIT_BASH, "-c", wrapper, GREP_SCRIPT, "-l", path.replace("\\", "/")],
+            cwd=os.path.dirname(GREP_SCRIPT),
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
+        if result.returncode == 0:
+            self.set_status(f"Log出力完了: {os.path.basename(path)}")
+        else:
+            self.set_status(f"Log出力失敗 (終了コード {result.returncode})")
+
+    def on_download(self, force, log=False):
         kind = self.kind_var.get().strip()
         year = self.year_var.get().strip()
         month = self.month_var.get().strip()
@@ -210,10 +304,10 @@ class LogDownloaderGUI:
         open_flag = self.open_excel_var.get()
         self.set_buttons_enabled(False)
         threading.Thread(
-            target=self.worker, args=(kind, year, month, force, open_flag), daemon=True
+            target=self.worker, args=(kind, year, month, force, open_flag, log), daemon=True
         ).start()
 
-    def worker(self, kind, year, month, force, open_flag):
+    def worker(self, kind, year, month, force, open_flag, log):
         url1, url2 = get_urls(kind, year, month)
         save_dir = get_save_dir(kind)
         final_filename = f"{year}_{month}_{kind}.xlsm"
@@ -231,8 +325,7 @@ class LogDownloaderGUI:
 
             if not force and os.path.isfile(final_path):
                 self.set_status(f"Local file: {final_filename}")
-                if open_flag:
-                    open_excel_file(final_path)
+                self.finish(final_path, open_flag, log)
                 return
 
             self.set_status("Downloading...")
@@ -245,8 +338,7 @@ class LogDownloaderGUI:
 
             if success:
                 self.set_status(f"Saved: {final_filename} ({source})")
-                if open_flag:
-                    open_excel_file(final_path)
+                self.finish(final_path, open_flag, log)
             else:
                 self.set_status("Download failed.")
                 self.root.after(0, lambda: messagebox.showerror(
