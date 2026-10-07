@@ -26,6 +26,7 @@ DARK = {
 }
 
 GREP_SCRIPT = "c:/Users/kenic/Dropbox/gitdir/operation_log_NEW/excelgrep_by_XMLparse.sh"
+ICON_NAME = "CopyAndOpenExcel.ico"
 VSCODE_EXE = r"C:\Users\kenic\AppData\Local\Programs\Microsoft VS Code\Code.exe"
 OPERATION_LOG_DIR = r"C:\Users\kenic\Dropbox\gitdir\operation_log_NEW"
 LOGSEARCH_URL = "http://saclaopr19.spring8.or.jp/~logsearch/"
@@ -115,6 +116,35 @@ def try_download(url, save_path, progress=None):
 
 
 def open_excel_file(file_path):
+    """Excelで開いて最大化する。失敗したら関連付けで開く"""
+    # 起動済みのExcelがあればそれを使い、なければ新規起動 (COM経由)
+    ps_script = (
+        "$ErrorActionPreference='Stop';"
+        "try { $xl=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application') }"
+        " catch { $xl=New-Object -ComObject Excel.Application };"
+        "$xl.Visible=$true;"
+        "$wb=$xl.Workbooks.Open($env:LOGNOTE_FILE);"
+        "$xl.WindowState=-4137;"  # xlMaximized (アプリ)
+        "$wb.Windows.Item(1).WindowState=-4137;"  # ブックのウィンドウも最大化
+        "$wb.Activate()"
+    )
+    try:
+        env = dict(os.environ, LOGNOTE_FILE=os.path.abspath(file_path))
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            env=env, capture_output=True, timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        if result.returncode == 0:
+            print(f"Opened (maximized): {file_path}")
+            return
+        print(f"Excel COM failed: {result.stderr.decode(errors='replace')[:300]}")
+    except Exception as e:
+        print(f"Excel COM error: {e}")
+    _open_with_association(file_path)
+
+
+def _open_with_association(file_path):
     try:
         os.startfile(file_path)
         print(f"Opened: {file_path}")
@@ -126,6 +156,7 @@ class LogDownloaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Operation Log Downloader")
+        self.setup_icon()
         self.root.geometry("720x400")
         self.root.resizable(False, False)
 
@@ -217,6 +248,22 @@ class LogDownloaderGUI:
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception as e:
             messagebox.showerror("Error", f"Edge を起動できませんでした。\n{e}")
+
+    def setup_icon(self):
+        """スクリプトと同じフォルダの CopyAndOpenExcel.ico があればアイコンに使う"""
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ICON_NAME)
+        if not os.path.isfile(icon_path):
+            return
+        try:
+            # python.exe とは別のアプリとして扱わせ、タスクバーに専用アイコンを出す
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CopyAndOpenExcel.LogDownloader")
+        except Exception:
+            pass
+        try:
+            self.root.iconbitmap(default=icon_path)
+        except tk.TclError as e:
+            print(f"Warning: could not load icon: {e}")
 
     def setup_dark_theme(self):
         self.root.configure(bg=DARK["bg"])
