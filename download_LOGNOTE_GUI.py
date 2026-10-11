@@ -28,6 +28,7 @@ DARK = {
 GREP_SCRIPT = "c:/Users/kenic/Dropbox/gitdir/operation_log_NEW/excelgrep_by_XMLparse.sh"
 ICON_NAME = "CopyAndOpenExcel.ico"
 VSCODE_EXE = r"C:\Users\kenic\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+SELF_DIR = r"C:\Users\kenic\Dropbox\gitdir\CopyAndOpenExcel"
 OPERATION_LOG_DIR = r"C:\Users\kenic\Dropbox\gitdir\operation_log_NEW"
 LOGSEARCH_URL = "http://saclaopr19.spring8.or.jp/~logsearch/"
 GIT_BASH = r"C:\Program Files\Git\bin\bash.exe"
@@ -166,6 +167,7 @@ class LogDownloaderGUI:
 
         frame = ttk.Frame(root, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
+        frame.columnconfigure(2, weight=1)  # 右端の列を広げ、右下のボタンを右端に寄せる
         self.setup_dark_theme()
 
         ttk.Label(frame, text="Kind:").grid(row=0, column=0, sticky=tk.W, pady=5)
@@ -226,14 +228,22 @@ class LogDownloaderGUI:
         self.log_dl_btn.pack(side=tk.LEFT, padx=5)
 
         tool_frame = ttk.Frame(frame)
-        tool_frame.grid(row=1, column=2, rowspan=2, sticky=tk.N, padx=(25, 0))
+        tool_frame.grid(row=1, column=2, rowspan=2, sticky=tk.N + tk.W, padx=(25, 0))
         ttk.Button(tool_frame, text="operation_log_NEW", width=18, command=self.open_operation_log_in_vscode).pack(pady=(0, 6))
         ttk.Button(tool_frame, text="ログ検索", width=18, command=self.open_logsearch).pack()
 
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(frame, textvariable=self.status_var, foreground=DARK["link"]).grid(row=7, column=0, columnspan=3, pady=5)
+        ttk.Button(frame, text="vscode CopyAndOpenExcel", command=self.open_self_in_vscode).grid(
+            row=7, column=2, sticky=tk.E, pady=5)
 
         self.kind_var.trace_add("write", lambda *args: self.update_save_path())
+
+    def open_self_in_vscode(self):
+        try:
+            subprocess.Popen([VSCODE_EXE, SELF_DIR])
+        except Exception as e:
+            messagebox.showerror("Error", f"VS Code を起動できませんでした。\n{e}")
 
     def open_operation_log_in_vscode(self):
         try:
