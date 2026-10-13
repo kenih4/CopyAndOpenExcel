@@ -117,40 +117,44 @@ def try_download(url, save_path, progress=None):
 
 
 def open_excel_file(file_path):
-    """Excelで開いて最大化する。失敗したら関連付けで開く"""
-    # 起動済みのExcelがあればそれを使い、なければ新規起動 (COM経由)
-    ps_script = (
-        "$ErrorActionPreference='Stop';"
-        "try { $xl=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application') }"
-        " catch { $xl=New-Object -ComObject Excel.Application };"
-        "$xl.Visible=$true;"
-        "$wb=$xl.Workbooks.Open($env:LOGNOTE_FILE);"
-        "$xl.WindowState=-4137;"  # xlMaximized (アプリ)
-        "$wb.Windows.Item(1).WindowState=-4137;"  # ブックのウィンドウも最大化
-        "$wb.Activate()"
-    )
-    try:
-        env = dict(os.environ, LOGNOTE_FILE=os.path.abspath(file_path))
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
-            env=env, capture_output=True, timeout=120,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
-        if result.returncode == 0:
-            print(f"Opened (maximized): {file_path}")
-            return
-        print(f"Excel COM failed: {result.stderr.decode(errors='replace')[:300]}")
-    except Exception as e:
-        print(f"Excel COM error: {e}")
-    _open_with_association(file_path)
-
-
-def _open_with_association(file_path):
+    """関連付けでExcelを開き、開いたブックを別スレッドで最大化する (最大化に失敗しても開くのは妨げない)"""
     try:
         os.startfile(file_path)
         print(f"Opened: {file_path}")
     except Exception as e:
         print(f"Warning: Could not open file: {e}")
+        return
+    threading.Thread(target=maximize_excel_window, args=(file_path,), daemon=True).start()
+
+
+def maximize_excel_window(file_path):
+    """起動済みExcelに接続し、指定ブックのウィンドウを最大化する。開くまで最大20秒待つ"""
+    ps_script = (
+        "$path=$env:LOGNOTE_FILE;"
+        "for($i=0;$i -lt 40;$i++){"
+        " try{"
+        "  $xl=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application');"
+        "  foreach($wb in $xl.Workbooks){"
+        "   if($wb.FullName -ieq $path){"
+        "    $xl.WindowState=-4137;"  # xlMaximized (アプリ)
+        "    $wb.Windows.Item(1).WindowState=-4137;"  # ブックのウィンドウも最大化
+        "    exit 0"
+        "   }"
+        "  }"
+        " }catch{}"
+        " Start-Sleep -Milliseconds 500"
+        "};"
+        "exit 1"
+    )
+    try:
+        env = dict(os.environ, LOGNOTE_FILE=os.path.abspath(file_path))
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            env=env, capture_output=True, timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    except Exception as e:
+        print(f"Warning: could not maximize Excel window: {e}")
 
 
 class LogDownloaderGUI:
