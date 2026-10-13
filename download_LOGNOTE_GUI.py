@@ -68,13 +68,17 @@ def download_log(kind, year, month, open_excel_flag):
     print(f"Trying URL1: {url1}")
 
     # URL1 を試す
-    success = try_download(url1, final_path)
-    source = "URL1"
+    try:
+        success = try_download(url1, final_path)
+        source = "URL1"
 
-    if not success:
-        print("URL1 not found, trying URL2...")
-        success = try_download(url2, final_path)
-        source = "URL2"
+        if not success:
+            print("URL1 not found, trying URL2...")
+            success = try_download(url2, final_path)
+            source = "URL2"
+    except FileLockedError as e:
+        print(f"Error: {e}")
+        return False
 
     if success:
         print(f"Saved: {final_path} ({source})")
@@ -88,9 +92,25 @@ def download_log(kind, year, month, open_excel_flag):
         return False
 
 
+class FileLockedError(Exception):
+    """保存先ファイルが他のアプリ (Excel等) で開かれていて上書きできない"""
+
+    def __init__(self, path):
+        super().__init__(
+            f"保存先のファイルが Excel などで開かれているため上書きできません。\n"
+            f"ファイルを閉じてからもう一度実行してください。\n\n{path}"
+        )
+
+
 def try_download(url, save_path, progress=None):
     """ダウンロードして save_path に保存。progress(受信バイト数, 全体バイト数 or None) を随時呼ぶ"""
     tmp_path = save_path + ".part"
+    # Excel等で開かれていて上書きできないファイルは、ダウンロード前に検出する
+    if os.path.exists(save_path):
+        try:
+            open(save_path, "ab").close()
+        except OSError as e:
+            raise FileLockedError(save_path) from e
     try:
         with requests.get(url, timeout=30, stream=True) as response:
             if response.status_code != 200:
@@ -104,8 +124,14 @@ def try_download(url, save_path, progress=None):
                     if progress:
                         progress(received, total)
         # 完了してから置き換える (失敗時に既存ファイルを壊さない)
-        os.replace(tmp_path, save_path)
+        try:
+            os.replace(tmp_path, save_path)
+        except PermissionError as e:
+            os.remove(tmp_path)
+            raise FileLockedError(save_path) from e
         return True
+    except FileLockedError:
+        raise
     except Exception as e:
         print(f"Download error: {e}")
     try:
