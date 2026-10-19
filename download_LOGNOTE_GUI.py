@@ -20,8 +20,9 @@ def load_config():
 CONFIG = load_config()
 
 DARK = {
-    "bg": "#1e1e1e", "fg": "#e0e0e0", "field": "#2d2d2d", "border": "#555555",
-    "button": "#3a3a3a", "button_active": "#4a4a4a", "accent": "#2f6db5",
+    "bg": "#1e1e1e", "card": "#262628", "fg": "#e6e6e6", "muted": "#9a9a9a",
+    "field": "#333336", "border": "#3d3d40",
+    "button": "#38383c", "button_active": "#48484d", "accent": "#2f6db5", "accent_active": "#3b80d0",
     "link": "#6cb6ff", "disabled": "#777777",
 }
 
@@ -188,86 +189,119 @@ class LogDownloaderGUI:
         self.root = root
         self.root.title("Operation Log Downloader")
         self.setup_icon()
-        self.root.geometry("720x400")
         self.root.resizable(False, False)
-
-        now = datetime.now()
-        current_year = str(now.year)
-        current_month = f"{now.month:02d}"
-
-        frame = ttk.Frame(root, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
-        frame.columnconfigure(2, weight=1)  # 右端の列を広げ、右下のボタンを右端に寄せる
         self.setup_dark_theme()
 
-        ttk.Label(frame, text="Kind:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        now = datetime.now()
         self.kind_var = tk.StringVar(value=CONFIG["default_kind"])
-        kind_frame = ttk.Frame(frame)
-        kind_frame.grid(row=0, column=1, sticky=tk.W, pady=5)
-        # indicatoron=0 でボタン表示にし、選択中は押し込み状態になる
-        for kind in CONFIG["kinds"]:
+        self.year_var = tk.StringVar(value=str(now.year))
+        self.month_var = tk.StringVar(value=f"{now.month:02d}")
+        self.save_path_var = tk.StringVar()
+        self.open_excel_var = tk.BooleanVar(value=True)
+        self.status_var = tk.StringVar(value="Ready")
+
+        outer = ttk.Frame(self.root, padding=(16, 14, 16, 0))
+        outer.pack(fill=tk.BOTH, expand=True)
+        tk.Frame(outer, width=620, height=0, bg=DARK["bg"]).pack()  # ウィンドウの最小幅を確保する
+
+        # ---- 対象 (Kind / Year / Month / 保存先) ----
+        target = self.make_card(outer, "TARGET")
+
+        kind_row = ttk.Frame(target, style="Card.TFrame")
+        kind_row.pack(fill=tk.X, pady=(0, 10))
+        # indicatoron=0 でボタン表示にし、選択中は押し込み状態 (アクセント色) になる
+        for i, kind in enumerate(CONFIG["kinds"]):
+            kind_row.columnconfigure(i, weight=1, uniform="kind")  # 幅を均等にする
             tk.Radiobutton(
-                kind_frame, text=kind, value=kind, variable=self.kind_var,
-                indicatoron=0, width=8, pady=3, relief=tk.RAISED, bd=2,
+                kind_row, text=kind, value=kind, variable=self.kind_var,
+                indicatoron=0, pady=6, relief=tk.FLAT, bd=0, font=("", 10, "bold"),
                 bg=DARK["button"], fg=DARK["fg"], selectcolor=DARK["accent"],
                 activebackground=DARK["button_active"], activeforeground=DARK["fg"],
-                highlightthickness=0
-            ).pack(side=tk.LEFT, padx=2)
+                highlightthickness=0, cursor="hand2"
+            ).grid(row=0, column=i, sticky="ew", padx=2)
 
-        ttk.Label(frame, text="Year:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.year_var = tk.StringVar(value=current_year)
-        year_frame = ttk.Frame(frame)
-        year_frame.grid(row=1, column=1, sticky=tk.W, pady=5)
-        ttk.Button(year_frame, text="-", width=3, command=lambda: self.change_month(-12)).pack(side=tk.LEFT)
-        ttk.Entry(year_frame, textvariable=self.year_var, width=10, justify="center").pack(side=tk.LEFT, padx=3)
-        ttk.Button(year_frame, text="+", width=3, command=lambda: self.change_month(12)).pack(side=tk.LEFT)
+        date_row = ttk.Frame(target, style="Card.TFrame")
+        date_row.pack(fill=tk.X, pady=(0, 10))
+        self.make_stepper(date_row, "Year", self.year_var, 12).pack(side=tk.LEFT, expand=True)
+        self.make_stepper(date_row, "Month", self.month_var, 1).pack(side=tk.LEFT, expand=True)
 
-        ttk.Label(frame, text="Month:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.month_var = tk.StringVar(value=current_month)
-        month_frame = ttk.Frame(frame)
-        month_frame.grid(row=2, column=1, sticky=tk.W, pady=5)
-        ttk.Button(month_frame, text="-", width=3, command=lambda: self.change_month(-1)).pack(side=tk.LEFT)
-        ttk.Entry(month_frame, textvariable=self.month_var, width=10, justify="center").pack(side=tk.LEFT, padx=3)
-        ttk.Button(month_frame, text="+", width=3, command=lambda: self.change_month(1)).pack(side=tk.LEFT)
-
-        ttk.Label(frame, text="Save to:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        self.save_path_var = tk.StringVar()
-        save_label = ttk.Label(frame, textvariable=self.save_path_var, foreground=DARK["link"], cursor="hand2")
-        save_label.grid(row=3, column=1, sticky=tk.W, pady=5)
+        save_row = ttk.Frame(target, style="Card.TFrame")
+        save_row.pack(fill=tk.X)
+        ttk.Label(save_row, text="Save to", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 10))
+        save_label = ttk.Label(save_row, textvariable=self.save_path_var, style="Link.TLabel", cursor="hand2")
+        save_label.pack(side=tk.LEFT)
         save_label.bind("<Button-1>", lambda e: self.open_save_dir())
         self.update_save_path()
 
-        self.open_excel_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            frame, text="ダウンロード後にExcelで開く",
-            variable=self.open_excel_var
-        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
+        # ---- 実行 ----
+        actions = self.make_card(outer, "ACTIONS")
+        grid = ttk.Frame(actions, style="Card.TFrame")
+        grid.pack(fill=tk.X)
+        grid.columnconfigure((0, 1), weight=1, uniform="act")
+        self.open_btn = ttk.Button(grid, text="Open  (ローカル優先)", style="Primary.TButton",
+                                   command=lambda: self.on_download(force=False))
+        self.download_btn = ttk.Button(grid, text="Re-download  (再取得)",
+                                       command=lambda: self.on_download(force=True))
+        self.log_btn = ttk.Button(grid, text="Open + Log出力  (ローカル優先)",
+                                  command=lambda: self.on_download(force=False, log=True))
+        self.log_dl_btn = ttk.Button(grid, text="Re-download + Log出力",
+                                     command=lambda: self.on_download(force=True, log=True))
+        self.open_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
+        self.download_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
+        self.log_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+        self.log_dl_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0))
+        ttk.Checkbutton(actions, text="ダウンロード後にExcelで開く", variable=self.open_excel_var,
+                        style="Card.TCheckbutton").pack(anchor=tk.W, pady=(10, 0))
 
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=5, column=0, columnspan=3, pady=10)
-        self.open_btn = ttk.Button(btn_frame, text="Open (ローカル優先)", command=lambda: self.on_download(force=False))
-        self.open_btn.pack(side=tk.LEFT, padx=5)
-        self.download_btn = ttk.Button(btn_frame, text="Re-download (再ダウンロード)", command=lambda: self.on_download(force=True))
-        self.download_btn.pack(side=tk.LEFT, padx=5)
+        # ---- ツール ----
+        tools = self.make_card(outer, "TOOLS")
+        self.make_button_row(tools, [
+            ("operation_log_NEW", self.open_operation_log_in_vscode),
+            ("ログ検索", self.open_logsearch),
+        ])
 
-        btn_frame2 = ttk.Frame(frame)
-        btn_frame2.grid(row=6, column=0, columnspan=3, pady=(0, 10))
-        self.log_btn = ttk.Button(btn_frame2, text="Open + Log出力 (ローカル優先)", command=lambda: self.on_download(force=False, log=True))
-        self.log_btn.pack(side=tk.LEFT, padx=5)
-        self.log_dl_btn = ttk.Button(btn_frame2, text="Re-download + Log出力", command=lambda: self.on_download(force=True, log=True))
-        self.log_dl_btn.pack(side=tk.LEFT, padx=5)
+        # ---- 設定 ----
+        settings = self.make_card(outer, "SETTINGS")
+        self.make_button_row(settings, [
+            ("vscode CopyAndOpenExcel", self.open_self_in_vscode),
+        ])
 
-        tool_frame = ttk.Frame(frame)
-        tool_frame.grid(row=1, column=2, rowspan=2, sticky=tk.N + tk.W, padx=(25, 0))
-        ttk.Button(tool_frame, text="operation_log_NEW", width=18, command=self.open_operation_log_in_vscode).pack(pady=(0, 6))
-        ttk.Button(tool_frame, text="ログ検索", width=18, command=self.open_logsearch).pack()
-
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(frame, textvariable=self.status_var, foreground=DARK["link"]).grid(row=7, column=0, columnspan=3, pady=5)
-        ttk.Button(frame, text="vscode CopyAndOpenExcel", command=self.open_self_in_vscode).grid(
-            row=7, column=2, sticky=tk.E, pady=5)
+        # ---- ステータスバー ----
+        status_bar = tk.Frame(self.root, bg=DARK["card"])
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM, pady=(12, 0))
+        ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel").pack(
+            side=tk.LEFT, padx=16, pady=6)
 
         self.kind_var.trace_add("write", lambda *args: self.update_save_path())
+
+    def make_card(self, parent, title):
+        """見出し付きのカード (セクション) を作り、中身を入れるフレームを返す"""
+        wrapper = tk.Frame(parent, bg=DARK["card"], highlightthickness=1,
+                           highlightbackground=DARK["border"], highlightcolor=DARK["border"])
+        wrapper.pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(wrapper, text=title, style="Section.TLabel").pack(anchor=tk.W, padx=14, pady=(10, 6))
+        body = ttk.Frame(wrapper, style="Card.TFrame", padding=(14, 0, 14, 14))
+        body.pack(fill=tk.X)
+        return body
+
+    def make_button_row(self, parent, buttons, columns=2):
+        """同じ幅のボタンを横に並べる。ボタンが少なくても列数分の幅で揃える"""
+        row = ttk.Frame(parent, style="Card.TFrame")
+        row.pack(fill=tk.X)
+        row.columnconfigure(tuple(range(columns)), weight=1, uniform="btn")
+        for i, (text, cmd) in enumerate(buttons):
+            ttk.Button(row, text=text, command=cmd).grid(
+                row=0, column=i, sticky="ew",
+                padx=(0 if i == 0 else 4, 0 if i == columns - 1 else 4))
+
+    def make_stepper(self, parent, label, var, step):
+        """ラベル + [-] [入力欄] [+] のセット。step=12 で年、1 で月"""
+        box = ttk.Frame(parent, style="Card.TFrame")
+        ttk.Label(box, text=label, style="Muted.TLabel", width=6).pack(side=tk.LEFT)
+        ttk.Button(box, text="−", width=3, command=lambda: self.change_month(-step)).pack(side=tk.LEFT)
+        ttk.Entry(box, textvariable=var, width=7, justify="center", font=("", 11, "bold")).pack(side=tk.LEFT, padx=4, ipady=3)
+        ttk.Button(box, text="+", width=3, command=lambda: self.change_month(step)).pack(side=tk.LEFT)
+        return box
 
     def open_self_in_vscode(self):
         try:
@@ -313,15 +347,26 @@ class LogDownloaderGUI:
                         fieldbackground=DARK["field"], bordercolor=DARK["border"],
                         lightcolor=DARK["button"], darkcolor=DARK["button"],
                         troughcolor=DARK["field"], insertcolor=DARK["fg"])
-        style.configure("TButton", background=DARK["button"], foreground=DARK["fg"], padding=4)
+        style.configure("Card.TFrame", background=DARK["card"])
+        style.configure("Section.TLabel", background=DARK["card"], foreground=DARK["muted"], font=("", 8, "bold"))
+        style.configure("Muted.TLabel", background=DARK["card"], foreground=DARK["muted"])
+        style.configure("Link.TLabel", background=DARK["card"], foreground=DARK["link"])
+        style.configure("Status.TLabel", background=DARK["card"], foreground=DARK["link"])
+        style.configure("TButton", background=DARK["button"], foreground=DARK["fg"], padding=(10, 6),
+                        borderwidth=0, focuscolor=DARK["button"])
         style.map("TButton",
                   background=[("disabled", DARK["bg"]), ("pressed", DARK["accent"]), ("active", DARK["button_active"])],
                   foreground=[("disabled", DARK["disabled"])])
-        style.configure("TEntry", fieldbackground=DARK["field"], foreground=DARK["fg"])
-        style.configure("TCheckbutton", background=DARK["bg"], foreground=DARK["fg"],
+        style.configure("Primary.TButton", background=DARK["accent"], foreground="#ffffff",
+                        font=("", 9, "bold"), focuscolor=DARK["accent"])
+        style.map("Primary.TButton",
+                  background=[("disabled", DARK["bg"]), ("pressed", DARK["accent"]), ("active", DARK["accent_active"])],
+                  foreground=[("disabled", DARK["disabled"])])
+        style.configure("TEntry", fieldbackground=DARK["field"], foreground=DARK["fg"], bordercolor=DARK["border"])
+        style.configure("Card.TCheckbutton", background=DARK["card"], foreground=DARK["fg"],
                         indicatorbackground=DARK["field"], indicatorforeground=DARK["fg"])
-        style.map("TCheckbutton",
-                  background=[("active", DARK["bg"])],
+        style.map("Card.TCheckbutton",
+                  background=[("active", DARK["card"])],
                   indicatorcolor=[("selected", DARK["accent"]), ("!selected", DARK["field"])])
 
     def change_month(self, delta):
